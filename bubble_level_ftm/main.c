@@ -47,6 +47,7 @@
 // Variables
 ////////////////////////////////////////////////////////////////////////////////
 uint16_t g_xValue, g_yValue = 0;
+uint16_t tiltFlag = 0; // 0 if level, 1 if tilted
 
 ////////////////////////////////////////////////////////////////////////////////
 // Code
@@ -148,9 +149,6 @@ int main (void)
     LED2_EN;
     LED3_EN;
 
-    // Print the initial banner.
-    PRINTF("Bubble Level Demo!\r\n\r\n");
-
     // Initialize the Accel.
     accel_init(&accDev);
 
@@ -224,10 +222,24 @@ int main (void)
         g_xValue = (xAngle > 5) ? (uint16_t)((xAngle / 90.0) * ftmModulo) : 0;
         g_yValue = (yAngle > 5) ? (uint16_t)((yAngle / 90.0) * ftmModulo) : 0;
 
+        // Detect tilt with 10 degree threshold
+        if(xAngle > 10 || yAngle > 10){
+            if(tiltFlag == 0){
+            	PRINTF("Device is tilted!\r\n");
+            }
+        	tiltFlag = 1;
+        }
+        else{ //no tilt
+        	if(tiltFlag == 1){
+        		PRINTF("Device is level.\r\n");
+        	}
+        	tiltFlag = 0;
+        }
+
         // Re-enable interrupts.
         INT_SYS_EnableIRQGlobal();
 
         // Print out the raw accelerometer data.
-        PRINTF("x= %d y = %d\r\n", xData, yData);
+        // PRINTF("x= %d y = %d\r\n", xData, yData);
     }
 }
