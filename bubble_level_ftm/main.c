@@ -32,6 +32,7 @@
 //  Includes
 ///////////////////////////////////////////////////////////////////////////////
 #include <stdlib.h>
+#include <math.h>
 
 // SDK Included Files
 #include "board.h"
@@ -48,6 +49,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 uint16_t g_xValue, g_yValue = 0;
 uint16_t tiltFlag = 0; // 0 if level, 1 if tilted
+uint16_t moveFlag = 0; // 0 if still, 1 if moving
 
 ////////////////////////////////////////////////////////////////////////////////
 // Code
@@ -113,6 +115,19 @@ void BOARD_FTM_IRQ_HANDLER(void)
     }
 }
 
+// function that returns the 3d norm
+// inputs: x,y,z
+// output: 3d norm of x,y,z
+uint32_t threeNorm(int16_t x,int16_t y,int16_t z){
+	uint32_t norm = 0;
+	double xsq,ysq,zsq;
+    xsq=pow((double)x,2);
+    ysq=pow((double)y,2);
+    zsq=pow((double)z,2);
+	norm = (uint32_t) sqrt(xsq+ysq+zsq);
+	return norm;
+}
+
 /*!
  * @brief Main demo function.
  */
@@ -123,7 +138,10 @@ int main (void)
     accel_dev_interface_t accDevice;
     accel_sensor_data_t accelData;
     accel_i2c_interface_t i2cInterface;
-    int16_t xData, yData;
+    int16_t xData, yData, zData;
+    uint32_t norm;
+    uint32_t normSwing = 500; // max swing of norm when device is still
+    int16_t freeFallThreshold = 12000;
     int16_t xAngle, yAngle;
     uint32_t ftmModulo;
 
@@ -200,7 +218,7 @@ int main (void)
     while(1)
     {
         // Wait 5 ms in between samples (accelerometer updates at 200Hz).
-        OSA_TimeDelay(5);
+        OSA_TimeDelay(300); // REMEMBER TO CHANGE THIS BACK TO 5
 
         // Get new accelerometer data.
           accDev.accel->accel_read_sensor_data(&accDev,&accelData);
@@ -208,20 +226,22 @@ int main (void)
         // Turn off interrupts (FTM) while updating new duty cycle values.
         INT_SYS_DisableIRQGlobal();
 
-        // Get the X and Y data from the sensor data structure.
+        // Get the X,Y,Z data from the sensor data structure.
         xData = (int16_t)((accelData.data.accelXMSB << 8) | accelData.data.accelXLSB);
         yData = (int16_t)((accelData.data.accelYMSB << 8) | accelData.data.accelYLSB);
+        zData = (int16_t)((accelData.data.accelZMSB << 8) | accelData.data.accelZLSB);
 
         // Convert raw data to angle (normalize to 0-90 degrees).  No negative
         // angles.
         xAngle = abs((int16_t)(xData * 0.011));
         yAngle = abs((int16_t)(yData * 0.011));
 
-        // Set values for next FTM ISR udpate.  Use 5 degrees as the threshold
+        // Set values for next FTM ISR update.  Use 5 degrees as the threshold
         // for whether to turn the LED on or not.
         g_xValue = (xAngle > 5) ? (uint16_t)((xAngle / 90.0) * ftmModulo) : 0;
         g_yValue = (yAngle > 5) ? (uint16_t)((yAngle / 90.0) * ftmModulo) : 0;
 
+        /*
         // Detect tilt with 10 degree threshold
         if(xAngle > 10 || yAngle > 10){
             if(tiltFlag == 0){
@@ -235,11 +255,37 @@ int main (void)
         	}
         	tiltFlag = 0;
         }
+        */
+
+
+        // Detect movement
+        // Calculate 3d norm of accelerometer data
+        norm = threeNorm(xData,yData,zData);
+        if(abs(norm-8000) > normSwing){ // device is moving
+        	moveFlag = 1;
+        	PRINTF("Device is moving\r\n");
+        }
+        else{
+        	moveFlag = 0;
+        	PRINTF("Device is still\r\n");
+        }
+        /*
+        // Detect free fall
+        if(zData > freeFallThreshold){
+        	PRINTF("Device is in free fall!\r\n");
+        }
+        else{
+        	PRINTF("Device is still.\r\n");
+        }
+        */
 
         // Re-enable interrupts.
         INT_SYS_EnableIRQGlobal();
 
+
+
         // Print out the raw accelerometer data.
-        // PRINTF("x= %d y = %d\r\n", xData, yData);
+        PRINTF("x= %d y = %d z = %d\r\n", xData, yData, zData);
+        PRINTF("norm = %d\r\n", norm);
     }
 }
