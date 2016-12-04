@@ -50,6 +50,7 @@
 uint16_t g_xValue, g_yValue = 0;
 uint16_t tiltFlag = 0; // 0 if level, 1 if tilted
 uint16_t moveFlag = 0; // 0 if still, 1 if moving
+uint16_t accelFlag = 0; //1 if acceleration exceeds threshold
 
 ////////////////////////////////////////////////////////////////////////////////
 // Code
@@ -128,8 +129,8 @@ uint32_t threeNorm(int16_t x,int16_t y,int16_t z){
 	return norm;
 }
 
-/*!
- * @brief Main demo function.
+/*
+ * Outputs to terminal at baud rate 115200 serial
  */
 int main (void)
 {
@@ -141,7 +142,10 @@ int main (void)
     int16_t xData, yData, zData;
     uint32_t norm;
     uint32_t normSwing = 500; // max swing of norm when device is still
-    int16_t freeFallThreshold = 12000;
+    // int16_t freeFallThreshold = 14000; // CAN'T TEST. NOT USED
+    uint16_t accelThreshold = 13000; // TBD VIA EMPIRICAL OBSERVATIONS
+    uint16_t tiltThresholdX = 15; // tilt threshold in degrees
+    uint16_t tiltThresholdY = 15; // tilt threshold in degrees
     int16_t xAngle, yAngle;
     uint32_t ftmModulo;
 
@@ -217,11 +221,11 @@ int main (void)
     // Main loop.  Get sensor data and update globals for the FTM timer update.
     while(1)
     {
-        // Wait 5 ms in between samples (accelerometer updates at 200Hz).
-        OSA_TimeDelay(300); // REMEMBER TO CHANGE THIS BACK TO 5
+        // Wait 200 ms in between samples (accelerometer updates at 5Hz).
+        OSA_TimeDelay(200); // WAS INITIALLY 5ms
 
         // Get new accelerometer data.
-          accDev.accel->accel_read_sensor_data(&accDev,&accelData);
+        accDev.accel->accel_read_sensor_data(&accDev,&accelData);
 
         // Turn off interrupts (FTM) while updating new duty cycle values.
         INT_SYS_DisableIRQGlobal();
@@ -230,6 +234,9 @@ int main (void)
         xData = (int16_t)((accelData.data.accelXMSB << 8) | accelData.data.accelXLSB);
         yData = (int16_t)((accelData.data.accelYMSB << 8) | accelData.data.accelYLSB);
         zData = (int16_t)((accelData.data.accelZMSB << 8) | accelData.data.accelZLSB);
+
+        // Calculate 3d norm of accelerometer data
+        norm = threeNorm(xData,yData,zData);
 
         // Convert raw data to angle (normalize to 0-90 degrees).  No negative
         // angles.
@@ -241,36 +248,24 @@ int main (void)
         g_xValue = (xAngle > 5) ? (uint16_t)((xAngle / 90.0) * ftmModulo) : 0;
         g_yValue = (yAngle > 5) ? (uint16_t)((yAngle / 90.0) * ftmModulo) : 0;
 
-        /*
-        // Detect tilt with 10 degree threshold
-        if(xAngle > 10 || yAngle > 10){
-            if(tiltFlag == 0){
-            	PRINTF("Device is tilted!\r\n");
-            }
+        // Detect tilt with degree threshold
+        if(xAngle > tiltThresholdX || yAngle > tiltThresholdY){
         	tiltFlag = 1;
         }
         else{ //no tilt
-        	if(tiltFlag == 1){
-        		PRINTF("Device is level.\r\n");
-        	}
         	tiltFlag = 0;
         }
-        */
-
 
         // Detect movement
-        // Calculate 3d norm of accelerometer data
-        norm = threeNorm(xData,yData,zData);
         if(abs(norm-8000) > normSwing){ // device is moving
         	moveFlag = 1;
-        	PRINTF("Device is moving\r\n");
         }
         else{
         	moveFlag = 0;
-        	PRINTF("Device is still\r\n");
         }
+
         /*
-        // Detect free fall
+        // Detect free fall (NOT USED)
         if(zData > freeFallThreshold){
         	PRINTF("Device is in free fall!\r\n");
         }
@@ -279,13 +274,36 @@ int main (void)
         }
         */
 
+        // Detect excessive acceleration
+        if(norm > accelThreshold){
+        	accelFlag = 1;
+        }
+        else{
+        	accelFlag = 0;
+        }
+
         // Re-enable interrupts.
         INT_SYS_EnableIRQGlobal();
 
+        // Print out the raw accelerometer data and status
+        //PRINTF("x= %d y = %d z = %d\r\n", xData, yData, zData);
+        //PRINTF("norm = %d\r\n", norm);
+        if(accelFlag==1){
+        	PRINTF("WARNING: EXCESSIVE ACCELERATION!\r\n");
+        }
+        if(moveFlag==1){
+        	PRINTF("Device is moving.\r\n");
+        }
+        else{ // FIND HOW TO DIFFERENTIATE BETWEEN ROTATION AND TRANSLATIONAL MOVEMENT
+        	PRINTF("Device is still.\r\n");
+            if(tiltFlag==1){
+            	PRINTF("Device is tilted.\r\n");
+            }
+            else{
+            	PRINTF("Device is level.\r\n");
+            }
+        }
 
-
-        // Print out the raw accelerometer data.
-        PRINTF("x= %d y = %d z = %d\r\n", xData, yData, zData);
-        PRINTF("norm = %d\r\n", norm);
+        PRINTF("\n\n\n"); // delimit
     }
 }
